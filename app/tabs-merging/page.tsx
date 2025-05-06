@@ -10,10 +10,11 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Download } from "lucide-react"
+import { Download, Eye, EyeOff } from "lucide-react"
 import { processExcelFile } from "@/lib/excel-processor"
 import { mergeSheets, generateMergedExcelFile } from "@/lib/tab-merger"
 import type { ExcelData } from "@/lib/types"
+import { Switch } from "@/components/ui/switch"
 
 // Mock data for real estate projects in Egypt
 const MOCK_PROJECTS = [
@@ -34,6 +35,7 @@ export default function TabsMerging() {
   const [activeSheet, setActiveSheet] = useState<string>("")
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const [tabAssignments, setTabAssignments] = useState<Record<string, string>>({})
+  const [includedTabs, setIncludedTabs] = useState<Record<string, boolean>>({})
   const [mergedData, setMergedData] = useState<any[][] | null>(null)
   const [step, setStep] = useState<"upload" | "assign" | "result">("upload")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -48,12 +50,17 @@ export default function TabsMerging() {
 
         // Initialize tab assignments with first project (if any are selected)
         const initialAssignments: Record<string, string> = {}
-        if (selectedProjects.length > 0) {
-          data.sheets.forEach((sheet) => {
+        const initialIncluded: Record<string, boolean> = {}
+
+        data.sheets.forEach((sheet) => {
+          if (selectedProjects.length > 0) {
             initialAssignments[sheet.name] = selectedProjects[0]
-          })
-        }
+          }
+          initialIncluded[sheet.name] = true // Default to including all tabs
+        })
+
         setTabAssignments(initialAssignments)
+        setIncludedTabs(initialIncluded)
       }
       setStep("assign")
     } catch (error) {
@@ -80,12 +87,22 @@ export default function TabsMerging() {
     }))
   }
 
+  const handleTabInclusion = (tabName: string, included: boolean) => {
+    setIncludedTabs((prev) => ({
+      ...prev,
+      [tabName]: included,
+    }))
+  }
+
   const handleMergeTabs = () => {
     if (!excelData) return
 
     setIsProcessing(true)
     try {
-      const merged = mergeSheets(excelData.sheets, tabAssignments, selectedProjects)
+      // Filter sheets to only include the ones that are marked as included
+      const includedSheets = excelData.sheets.filter((sheet) => includedTabs[sheet.name])
+
+      const merged = mergeSheets(includedSheets, tabAssignments, selectedProjects)
       setMergedData(merged)
       setStep("result")
     } catch (error) {
@@ -120,6 +137,9 @@ export default function TabsMerging() {
       setIsProcessing(false)
     }
   }
+
+  // Count how many tabs are included
+  const includedTabCount = excelData ? excelData.sheets.filter((sheet) => includedTabs[sheet.name]).length : 0
 
   return (
     <Card className="mb-8">
@@ -174,7 +194,7 @@ export default function TabsMerging() {
           <div className="space-y-6">
             <Alert>
               <AlertDescription>
-                Assign each tab to a project. The tabs will be merged based on these assignments.
+                Assign each tab to a project. You can also exclude tabs you don't want to include in the merge.
                 {selectedProjects.length > 1 && (
                   <p className="mt-2 text-sm">
                     <strong>Note:</strong> Since you've selected multiple projects, a "Project" column will be added to
@@ -190,14 +210,30 @@ export default function TabsMerging() {
                 {excelData.sheets.map((sheet) => (
                   <div
                     key={sheet.name}
-                    className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 p-2 border rounded-md"
+                    className={`flex flex-col md:flex-row md:items-center gap-2 md:gap-4 p-2 border rounded-md ${
+                      !includedTabs[sheet.name] ? "bg-gray-100 opacity-70" : ""
+                    }`}
                   >
-                    <div className="font-medium min-w-[150px]">{sheet.name}</div>
+                    <div className="font-medium min-w-[150px] flex items-center gap-2">
+                      <Switch
+                        checked={includedTabs[sheet.name]}
+                        onCheckedChange={(checked) => handleTabInclusion(sheet.name, checked)}
+                        id={`include-${sheet.name}`}
+                      />
+                      <Label htmlFor={`include-${sheet.name}`} className="cursor-pointer">
+                        {sheet.name}
+                      </Label>
+                      {includedTabs[sheet.name] ? (
+                        <Eye className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <EyeOff className="h-4 w-4 text-gray-400" />
+                      )}
+                    </div>
                     <div className="flex-grow">
                       <Select
                         value={tabAssignments[sheet.name] || ""}
                         onValueChange={(value) => handleTabAssignment(sheet.name, value)}
-                        disabled={selectedProjects.length === 0}
+                        disabled={selectedProjects.length === 0 || !includedTabs[sheet.name]}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Select a project" />
@@ -217,6 +253,10 @@ export default function TabsMerging() {
                   </div>
                 ))}
               </div>
+
+              <div className="mt-4 text-sm text-muted-foreground">
+                {includedTabCount} of {excelData.sheets.length} tabs will be included in the merge.
+              </div>
             </div>
 
             <Tabs value={activeSheet} onValueChange={setActiveSheet}>
@@ -224,12 +264,19 @@ export default function TabsMerging() {
                 {excelData.sheets.map((sheet) => (
                   <TabsTrigger key={sheet.name} value={sheet.name}>
                     {sheet.name}
+                    {!includedTabs[sheet.name] && <EyeOff className="ml-1 h-3 w-3 text-gray-400" />}
                   </TabsTrigger>
                 ))}
               </TabsList>
 
               {excelData.sheets.map((sheet) => (
                 <TabsContent key={sheet.name} value={sheet.name}>
+                  {!includedTabs[sheet.name] && (
+                    <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md text-sm flex items-center">
+                      <EyeOff className="h-4 w-4 text-yellow-500 mr-2" />
+                      This tab is excluded from the merge. Toggle the switch above to include it.
+                    </div>
+                  )}
                   <ExcelPreview data={sheet.data} compact={true} ultraCompact={true} />
                 </TabsContent>
               ))}
@@ -238,9 +285,14 @@ export default function TabsMerging() {
             <div className="flex justify-end">
               <Button
                 onClick={handleMergeTabs}
-                disabled={isProcessing || selectedProjects.length === 0 || Object.keys(tabAssignments).length === 0}
+                disabled={
+                  isProcessing ||
+                  selectedProjects.length === 0 ||
+                  Object.keys(tabAssignments).length === 0 ||
+                  includedTabCount === 0
+                }
               >
-                {isProcessing ? "Processing..." : "Merge Tabs"}
+                {isProcessing ? "Processing..." : `Merge ${includedTabCount} Tabs`}
               </Button>
             </div>
           </div>
