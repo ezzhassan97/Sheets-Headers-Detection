@@ -11,7 +11,9 @@ interface ResultPageProps {
   }
 }
 
-const ExcelPreview = React.lazy(() => import("@/components/ExcelPreview"))
+const ExcelPreview = React.lazy(() =>
+  import("@/components/excel-preview").then((module) => ({ default: module.ExcelPreview })),
+)
 
 const ResultPage: React.FC<ResultPageProps> = ({ searchParams }) => {
   let tablesData: TableData[] = []
