@@ -8,10 +8,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { FileUploader } from "@/components/file-uploader"
 import { ExcelPreview } from "@/components/excel-preview"
 import { TableSplitter } from "@/components/table-splitter"
-import { processExcelFile } from "@/lib/excel-processor"
+import { processExcelFile, generateExcelFile } from "@/lib/excel-processor"
 import type { ExcelData, ProcessedTable } from "@/lib/types"
+import { Download } from "lucide-react"
 
-export default function Home() {
+export default function HeadersDetection() {
   const [excelData, setExcelData] = useState<ExcelData | null>(null)
   const [activeSheet, setActiveSheet] = useState<string>("")
   const [detectedTables, setDetectedTables] = useState<Record<string, ProcessedTable[]>>({})
@@ -70,149 +71,186 @@ export default function Home() {
     setStep("result")
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!excelData || !processedData) return
 
-    // In a real app, this would generate and download the Excel file
-    // For now, we'll just simulate it
-    alert("Download would start here in a real application")
+    setIsProcessing(true)
+    try {
+      // Generate the Excel file
+      const blob = await generateExcelFile(excelData.fileName, processedData)
+
+      // Create a download link
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `processed_${excelData.fileName}`
+      document.body.appendChild(a)
+      a.click()
+
+      // Clean up
+      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error("Error generating Excel file:", error)
+      alert("An error occurred while generating the Excel file")
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   return (
-    <main className="container mx-auto py-8 px-4">
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Excel Sheet Splitter</CardTitle>
-          <CardDescription>
-            Upload an Excel file, preview it, detect tables, and split them into separate sheets
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4 mb-6">
-            <div className={`flex items-center gap-2 ${step === "upload" ? "text-primary" : "text-muted-foreground"}`}>
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">1</div>
-              <span>Upload</span>
-            </div>
-            <div className="flex-1 h-px bg-border"></div>
-            <div className={`flex items-center gap-2 ${step === "preview" ? "text-primary" : "text-muted-foreground"}`}>
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">2</div>
-              <span>Preview</span>
-            </div>
-            <div className="flex-1 h-px bg-border"></div>
-            <div className={`flex items-center gap-2 ${step === "detect" ? "text-primary" : "text-muted-foreground"}`}>
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">3</div>
-              <span>Detect</span>
-            </div>
-            <div className="flex-1 h-px bg-border"></div>
-            <div className={`flex items-center gap-2 ${step === "result" ? "text-primary" : "text-muted-foreground"}`}>
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">4</div>
-              <span>Result</span>
+    <Card className="mb-8">
+      <CardHeader>
+        <CardTitle>Headers Detection</CardTitle>
+        <CardDescription>
+          Upload an Excel file, preview it, detect tables, and split them into separate sheets
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`flex items-center gap-2 ${step === "upload" ? "text-primary" : "text-muted-foreground"}`}>
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">1</div>
+            <span>Upload</span>
+          </div>
+          <div className="flex-1 h-px bg-border"></div>
+          <div className={`flex items-center gap-2 ${step === "preview" ? "text-primary" : "text-muted-foreground"}`}>
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">2</div>
+            <span>Preview</span>
+          </div>
+          <div className="flex-1 h-px bg-border"></div>
+          <div className={`flex items-center gap-2 ${step === "detect" ? "text-primary" : "text-muted-foreground"}`}>
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">3</div>
+            <span>Detect</span>
+          </div>
+          <div className="flex-1 h-px bg-border"></div>
+          <div className={`flex items-center gap-2 ${step === "result" ? "text-primary" : "text-muted-foreground"}`}>
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">4</div>
+            <span>Result</span>
+          </div>
+        </div>
+
+        {step === "upload" && <FileUploader onFileUpload={handleFileUpload} isLoading={isProcessing} />}
+
+        {step === "preview" && excelData && (
+          <div className="space-y-4">
+            <Tabs value={activeSheet} onValueChange={setActiveSheet}>
+              <TabsList className="mb-4">
+                {excelData.sheets.map((sheet) => (
+                  <TabsTrigger key={sheet.name} value={sheet.name}>
+                    {sheet.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+
+              {excelData.sheets.map((sheet) => (
+                <TabsContent key={sheet.name} value={sheet.name}>
+                  <ExcelPreview data={sheet.data} compact={true} ultraCompact={true} />
+                </TabsContent>
+              ))}
+            </Tabs>
+
+            <div className="flex justify-end">
+              <Button onClick={handleDetectTables} disabled={isProcessing}>
+                {isProcessing ? "Processing..." : "Detect Tables"}
+              </Button>
             </div>
           </div>
+        )}
 
-          {step === "upload" && <FileUploader onFileUpload={handleFileUpload} isLoading={isProcessing} />}
+        {step === "detect" && detectedTables && Object.keys(detectedTables).length > 0 && (
+          <div className="space-y-6">
+            <Alert>
+              <AlertDescription>
+                Tables have been detected in the following sheets. Review and accept or modify them.
+              </AlertDescription>
+            </Alert>
 
-          {step === "preview" && excelData && (
-            <div className="space-y-4">
-              <Tabs value={activeSheet} onValueChange={setActiveSheet}>
-                <TabsList className="mb-4">
-                  {excelData.sheets.map((sheet) => (
-                    <TabsTrigger key={sheet.name} value={sheet.name}>
-                      {sheet.name}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-
-                {excelData.sheets.map((sheet) => (
-                  <TabsContent key={sheet.name} value={sheet.name}>
-                    <ExcelPreview data={sheet.data} compact={true} ultraCompact={true} />
-                  </TabsContent>
+            <Tabs defaultValue={Object.keys(detectedTables)[0]}>
+              <TabsList className="mb-4">
+                {Object.keys(detectedTables).map((sheetName) => (
+                  <TabsTrigger key={sheetName} value={sheetName}>
+                    {sheetName}
+                  </TabsTrigger>
                 ))}
-              </Tabs>
+              </TabsList>
 
-              <div className="flex justify-end">
-                <Button onClick={handleDetectTables} disabled={isProcessing}>
-                  {isProcessing ? "Processing..." : "Detect Tables"}
-                </Button>
-              </div>
+              {Object.entries(detectedTables).map(([sheetName, tables]) => (
+                <TabsContent key={sheetName} value={sheetName}>
+                  <TableSplitter
+                    sheetName={sheetName}
+                    tables={tables}
+                    onAccept={(tables) => handleAcceptTables(sheetName, tables)}
+                  />
+                </TabsContent>
+              ))}
+            </Tabs>
+
+            <div className="flex justify-end">
+              <Button onClick={handleFinalize}>Finalize and Preview Result</Button>
             </div>
-          )}
+          </div>
+        )}
 
-          {step === "detect" && detectedTables && Object.keys(detectedTables).length > 0 && (
-            <div className="space-y-6">
-              <Alert>
-                <AlertDescription>
-                  Tables have been detected in the following sheets. Review and accept or modify them.
-                </AlertDescription>
-              </Alert>
+        {step === "result" && processedData && Object.keys(processedData).length > 0 && (
+          <div className="space-y-6">
+            <Alert>
+              <AlertDescription>
+                Your Excel file has been processed. Preview the results below before downloading.
+                {Object.values(processedData).some((tables) => tables.length > 1) && (
+                  <p className="mt-2 text-sm">
+                    <strong>Note:</strong> Multiple tables detected in some sheets will be exported to separate tabs in
+                    the Excel file.
+                  </p>
+                )}
+              </AlertDescription>
+            </Alert>
 
-              <Tabs defaultValue={Object.keys(detectedTables)[0]}>
-                <TabsList className="mb-4">
-                  {Object.keys(detectedTables).map((sheetName) => (
-                    <TabsTrigger key={sheetName} value={sheetName}>
-                      {sheetName}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-
-                {Object.entries(detectedTables).map(([sheetName, tables]) => (
-                  <TabsContent key={sheetName} value={sheetName}>
-                    <TableSplitter
-                      sheetName={sheetName}
-                      tables={tables}
-                      onAccept={(tables) => handleAcceptTables(sheetName, tables)}
-                    />
-                  </TabsContent>
+            <Tabs defaultValue={Object.keys(processedData)[0]}>
+              <TabsList className="mb-4">
+                {Object.keys(processedData).map((sheetName) => (
+                  <TabsTrigger key={sheetName} value={sheetName}>
+                    {sheetName}
+                  </TabsTrigger>
                 ))}
-              </Tabs>
+              </TabsList>
 
-              <div className="flex justify-end">
-                <Button onClick={handleFinalize}>Finalize and Preview Result</Button>
-              </div>
+              {Object.entries(processedData).map(([sheetName, tables]) => (
+                <TabsContent key={sheetName} value={sheetName}>
+                  <div className="space-y-6">
+                    {tables.map((table, index) => (
+                      <div key={index} className="border rounded-md p-4">
+                        <h3 className="text-lg font-medium mb-2">
+                          Table {index + 1} ({table.data.length} rows)
+                          {tables.length > 1 && (
+                            <span className="text-sm text-muted-foreground ml-2">
+                              Will be exported as: {`${sheetName}_Table${index + 1}`}
+                            </span>
+                          )}
+                        </h3>
+                        <ExcelPreview data={table.data} compact={true} ultraCompact={true} maxHeight={300} />
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+              ))}
+            </Tabs>
+
+            <div className="flex justify-end">
+              <Button onClick={handleDownload} disabled={isProcessing}>
+                {isProcessing ? (
+                  "Generating..."
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Processed Excel
+                  </>
+                )}
+              </Button>
             </div>
-          )}
-
-          {step === "result" && processedData && Object.keys(processedData).length > 0 && (
-            <div className="space-y-6">
-              <Alert>
-                <AlertDescription>
-                  Your Excel file has been processed. Preview the results below before downloading.
-                </AlertDescription>
-              </Alert>
-
-              <Tabs defaultValue={Object.keys(processedData)[0]}>
-                <TabsList className="mb-4">
-                  {Object.keys(processedData).map((sheetName) => (
-                    <TabsTrigger key={sheetName} value={sheetName}>
-                      {sheetName}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-
-                {Object.entries(processedData).map(([sheetName, tables]) => (
-                  <TabsContent key={sheetName} value={sheetName}>
-                    <div className="space-y-6">
-                      {tables.map((table, index) => (
-                        <div key={index} className="border rounded-md p-4">
-                          <h3 className="text-lg font-medium mb-2">
-                            Table {index + 1} ({table.data.length} rows)
-                          </h3>
-                          <ExcelPreview data={table.data} compact={true} ultraCompact={true} maxHeight={300} />
-                        </div>
-                      ))}
-                    </div>
-                  </TabsContent>
-                ))}
-              </Tabs>
-
-              <div className="flex justify-end">
-                <Button onClick={handleDownload}>Download Processed Excel</Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </main>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -248,13 +286,18 @@ function detectTablesInSheet(data: any[][]): ProcessedTable[] {
 
         if (isRealTable) {
           const endRow = idx - 1
-          tables.push({
+
+          // First create the table without empty columns detection
+          const table: ProcessedTable = {
             startRow: startRow!,
             endRow,
             data: currentTable,
             headers: currentTable[0],
             summaryRows: summaryRowIndices.filter((i) => i >= startRow! && i <= endRow).map((i) => i - startRow!),
-          })
+            emptyColumns: [], // Initialize with empty array - we'll detect these later
+          }
+
+          tables.push(table)
         }
 
         currentTable = []
@@ -281,13 +324,17 @@ function detectTablesInSheet(data: any[][]): ProcessedTable[] {
     const isRealTable = isLikelyRealTable(currentTable)
 
     if (isRealTable) {
-      tables.push({
+      // First create the table without empty columns detection
+      const table: ProcessedTable = {
         startRow: startRow!,
         endRow: data.length - 1,
         data: currentTable,
         headers: currentTable[0],
         summaryRows: summaryRowIndices.filter((i) => i >= startRow!).map((i) => i - startRow!),
-      })
+        emptyColumns: [], // Initialize with empty array - we'll detect these later
+      }
+
+      tables.push(table)
     }
   }
 

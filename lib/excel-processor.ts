@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx"
-import type { ExcelData } from "./types"
+import type { ExcelData, ProcessedTable } from "./types"
 
 export async function processExcelFile(file: File): Promise<ExcelData> {
   return new Promise((resolve, reject) => {
@@ -36,13 +36,23 @@ export async function processExcelFile(file: File): Promise<ExcelData> {
   })
 }
 
-export async function generateExcelFile(fileName: string, processedData: Record<string, any[][]>): Promise<Blob> {
+export async function generateExcelFile(
+  fileName: string,
+  processedData: Record<string, ProcessedTable[]>,
+): Promise<Blob> {
   const workbook = XLSX.utils.book_new()
 
-  Object.entries(processedData).forEach(([sheetName, tables], sheetIndex) => {
+  Object.entries(processedData).forEach(([sheetName, tables]) => {
+    // If there's only one table, use the sheet name
+    // If there are multiple tables, create separate tabs for each table
     tables.forEach((table, tableIndex) => {
-      const worksheet = XLSX.utils.aoa_to_sheet(table)
-      XLSX.utils.book_append_sheet(workbook, worksheet, `${sheetName}.${tableIndex + 1}`)
+      const tabName = tables.length === 1 ? sheetName : `${sheetName}_Table${tableIndex + 1}`
+
+      // Ensure tab name is valid (Excel has a 31 character limit)
+      const validTabName = tabName.substring(0, 31)
+
+      const worksheet = XLSX.utils.aoa_to_sheet(table.data)
+      XLSX.utils.book_append_sheet(workbook, worksheet, validTabName)
     })
   })
 
