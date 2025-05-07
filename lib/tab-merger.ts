@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx"
 import { similarityRatio } from "./fuzzy-match"
 import type { SheetData } from "./types"
+import type { Project } from "./fetch-projects"
 
 // Normalize column name (similar to Python function)
 export function normalizeColumnName(name: string | number): string {
@@ -55,8 +56,15 @@ export function mergeSheets(
   sheets: SheetData[],
   projectAssignments: Record<string, string>,
   selectedProjects: string[],
+  allProjects: Project[],
 ): any[][] {
   if (!sheets || sheets.length === 0) return []
+
+  // Create a map of project IDs to project names for quick lookup
+  const projectMap: Record<string, string> = {}
+  allProjects.forEach((project) => {
+    projectMap[project.id] = project.name
+  })
 
   // Step 1: Gather all column sets
   const columnSets = sheets.map((sheet) => {
@@ -119,7 +127,9 @@ export function mergeSheets(
         if (header === "tab_name") {
           newRow[colIndex] = sheet.name
         } else if (header === "project" && selectedProjects.length > 1) {
-          newRow[colIndex] = projectAssignments[sheet.name] || ""
+          // Use project name instead of ID
+          const projectId = projectAssignments[sheet.name] || ""
+          newRow[colIndex] = projectMap[projectId] || ""
         } else if (headerPositions[header] !== undefined) {
           const originalIndex = headerPositions[header]
           newRow[colIndex] = row[originalIndex] !== undefined ? row[originalIndex] : ""

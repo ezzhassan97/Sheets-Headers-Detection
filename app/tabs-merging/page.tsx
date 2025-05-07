@@ -1,44 +1,93 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { FileUploader } from "@/components/file-uploader"
 import { ExcelPreview } from "@/components/excel-preview"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Download, Eye, EyeOff } from "lucide-react"
+import { Download, Eye, EyeOff, Loader2 } from "lucide-react"
 import { processExcelFile } from "@/lib/excel-processor"
 import { mergeSheets, generateMergedExcelFile } from "@/lib/tab-merger"
-import type { ExcelData } from "@/lib/types"
+import { fetchProjectsData, getProjectsByDevelopers, type Developer, type Project } from "@/lib/fetch-projects"
+import { MultiSelectDropdown, type Option } from "@/components/multi-select-dropdown"
 import { Switch } from "@/components/ui/switch"
-
-// Mock data for real estate projects in Egypt
-const MOCK_PROJECTS = [
-  { id: "madinaty", name: "Madinaty" },
-  { id: "new_cairo", name: "New Cairo" },
-  { id: "october", name: "6th of October" },
-  { id: "zayed", name: "Sheikh Zayed" },
-  { id: "alamein", name: "New Alamein" },
-  { id: "sokhna", name: "Ain Sokhna" },
-  { id: "north_coast", name: "North Coast" },
-  { id: "katameya", name: "Katameya" },
-  { id: "mostakbal", name: "Mostakbal City" },
-  { id: "rehab", name: "El Rehab" },
-]
+import type { ExcelData } from "@/lib/types"
 
 export default function TabsMerging() {
   const [excelData, setExcelData] = useState<ExcelData | null>(null)
   const [activeSheet, setActiveSheet] = useState<string>("")
+  const [selectedDevelopers, setSelectedDevelopers] = useState<string[]>([])
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const [tabAssignments, setTabAssignments] = useState<Record<string, string>>({})
   const [includedTabs, setIncludedTabs] = useState<Record<string, boolean>>({})
   const [mergedData, setMergedData] = useState<any[][] | null>(null)
   const [step, setStep] = useState<"upload" | "assign" | "result">("upload")
   const [isProcessing, setIsProcessing] = useState(false)
+  const [developers, setDevelopers] = useState<Developer[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
+
+  // Fetch developers and projects on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoadingData(true)
+      setFetchError(null)
+      try {
+        const data = await fetchProjectsData()
+        if (data.developers.length === 0 || data.projects.length === 0) {
+          setFetchError("Failed to load developers and projects data. Please try again.")
+        } else {
+          setDevelopers(data.developers)
+          setProjects(data.projects)
+          console.log(`Loaded ${data.developers.length} developers and ${data.projects.length} projects`)
+        }
+      } catch (error) {
+        console.error("Error loading projects data:", error)
+        setFetchError("An error occurred while loading data. Please try again.")
+      } finally {
+        setIsLoadingData(false)
+      }
+    }
+
+    loadData()
+  }, [])
+
+  // Convert developers to options for the multi-select dropdown
+  const developerOptions: Option[] = useMemo(
+    () =>
+      developers.map((developer) => ({
+        value: developer.id,
+        label: developer.name,
+      })),
+    [developers],
+  )
+
+  // Filter projects based on selected developers
+  const filteredProjects = useMemo(
+    () => getProjectsByDevelopers(projects, selectedDevelopers),
+    [projects, selectedDevelopers],
+  )
+
+  // Convert filtered projects to options for the multi-select dropdown
+  const projectOptions: Option[] = useMemo(
+    () =>
+      filteredProjects.map((project) => ({
+        value: project.id,
+        label: project.name,
+        tag: project.isSuper ? "Main" : "Sub",
+        tagColor: project.isSuper ? "green" : "blue",
+      })),
+    [filteredProjects],
+  )
+
+  // When developers selection changes, reset projects selection
+  useEffect(() => {
+    setSelectedProjects([])
+  }, [selectedDevelopers])
 
   const handleFileUpload = async (file: File) => {
     setIsProcessing(true)
@@ -48,14 +97,11 @@ export default function TabsMerging() {
       if (data.sheets.length > 0) {
         setActiveSheet(data.sheets[0].name)
 
-        // Initialize tab assignments with first project (if any are selected)
+        // Initialize tab assignments and inclusion
         const initialAssignments: Record<string, string> = {}
         const initialIncluded: Record<string, boolean> = {}
 
         data.sheets.forEach((sheet) => {
-          if (selectedProjects.length > 0) {
-            initialAssignments[sheet.name] = selectedProjects[0]
-          }
           initialIncluded[sheet.name] = true // Default to including all tabs
         })
 
@@ -70,14 +116,12 @@ export default function TabsMerging() {
     }
   }
 
-  const handleProjectSelection = (projectId: string) => {
-    setSelectedProjects((prev) => {
-      if (prev.includes(projectId)) {
-        return prev.filter((id) => id !== projectId)
-      } else {
-        return [...prev, projectId]
-      }
-    })
+  const handleDeveloperSelection = (selected: string[]) => {
+    setSelectedDevelopers(selected)
+  }
+
+  const handleProjectSelection = (selected: string[]) => {
+    setSelectedProjects(selected)
   }
 
   const handleTabAssignment = (tabName: string, projectId: string) => {
@@ -102,7 +146,8 @@ export default function TabsMerging() {
       // Filter sheets to only include the ones that are marked as included
       const includedSheets = excelData.sheets.filter((sheet) => includedTabs[sheet.name])
 
-      const merged = mergeSheets(includedSheets, tabAssignments, selectedProjects)
+      // Pass the projects array to mergeSheets
+      const merged = mergeSheets(includedSheets, tabAssignments, selectedProjects, projects)
       setMergedData(merged)
       setStep("result")
     } catch (error) {
@@ -141,6 +186,105 @@ export default function TabsMerging() {
   // Count how many tabs are included
   const includedTabCount = excelData ? excelData.sheets.filter((sheet) => includedTabs[sheet.name]).length : 0
 
+  // Project selection section - now a separate component to reuse
+  const ProjectSelectionSection = () => (
+    <div className="border rounded-md p-4 bg-gray-50 mb-6">
+      <h3 className="text-lg font-medium mb-2">Select Projects</h3>
+      <p className="text-sm text-muted-foreground mb-4">
+        First select developers, then choose projects from those developers.
+      </p>
+
+      {isLoadingData ? (
+        <div className="flex items-center justify-center h-20">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span className="ml-2">Loading data...</span>
+        </div>
+      ) : fetchError ? (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-md text-red-700 mb-4">
+          <p className="font-medium">Error loading data</p>
+          <p className="text-sm mt-1">{fetchError}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={() => {
+              setIsLoadingData(true)
+              setFetchError(null)
+              fetchProjectsData()
+                .then((data) => {
+                  setDevelopers(data.developers)
+                  setProjects(data.projects)
+                })
+                .catch((err) => {
+                  setFetchError("Failed to reload data. Please try again.")
+                })
+                .finally(() => {
+                  setIsLoadingData(false)
+                })
+            }}
+          >
+            Try Again
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Developers Dropdown */}
+          <div>
+            <Label htmlFor="developers" className="block mb-2">
+              1. Select Developers ({developers.length} available)
+            </Label>
+            <div className="relative" id="developers">
+              <MultiSelectDropdown
+                options={developerOptions}
+                selected={selectedDevelopers}
+                onChange={handleDeveloperSelection}
+                placeholder="Select developers..."
+                emptyMessage="No developers found."
+              />
+              {developerOptions.length === 0 && !isLoadingData && (
+                <p className="text-sm text-red-500 mt-2">
+                  No developers loaded. Please refresh the page and try again.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Projects Dropdown */}
+          <div>
+            <Label htmlFor="projects" className="block mb-2">
+              2. Select Projects ({filteredProjects.length} available)
+            </Label>
+            <div className="relative" id="projects">
+              <MultiSelectDropdown
+                options={projectOptions}
+                selected={selectedProjects}
+                onChange={handleProjectSelection}
+                placeholder={selectedDevelopers.length > 0 ? "Select projects..." : "Please select developers first"}
+                emptyMessage={
+                  selectedDevelopers.length > 0
+                    ? "No projects found for selected developers."
+                    : "Please select developers first."
+                }
+                disabled={selectedDevelopers.length === 0}
+              />
+              {selectedDevelopers.length > 0 && projectOptions.length === 0 && (
+                <p className="text-sm text-amber-500 mt-2">No projects found for the selected developers.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Selection Summary */}
+          <div className="mt-4 text-sm">
+            <div className="flex justify-between text-muted-foreground">
+              <span>Selected Developers: {selectedDevelopers.length}</span>
+              <span>Selected Projects: {selectedProjects.length}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <Card className="mb-8">
       <CardHeader>
@@ -165,27 +309,11 @@ export default function TabsMerging() {
           </div>
         </div>
 
+        {/* Project Selection - Always visible */}
+        <ProjectSelectionSection />
+
         {step === "upload" && (
           <div className="space-y-6">
-            <div className="border rounded-md p-4 bg-gray-50">
-              <h3 className="text-lg font-medium mb-2">Select Projects</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Choose the projects you want to assign tabs to. You can select multiple projects.
-              </p>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {MOCK_PROJECTS.map((project) => (
-                  <div key={project.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`project-${project.id}`}
-                      checked={selectedProjects.includes(project.id)}
-                      onCheckedChange={() => handleProjectSelection(project.id)}
-                    />
-                    <Label htmlFor={`project-${project.id}`}>{project.name}</Label>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <FileUploader onFileUpload={handleFileUpload} isLoading={isProcessing} />
           </div>
         )}
@@ -210,9 +338,7 @@ export default function TabsMerging() {
                 {excelData.sheets.map((sheet) => (
                   <div
                     key={sheet.name}
-                    className={`flex flex-col md:flex-row md:items-center gap-2 md:gap-4 p-2 border rounded-md ${
-                      !includedTabs[sheet.name] ? "bg-gray-100 opacity-70" : ""
-                    }`}
+                    className={`flex flex-col md:flex-row md:items-center gap-2 md:gap-4 p-2 border rounded-md ${!includedTabs[sheet.name] ? "bg-gray-100 opacity-70" : ""}`}
                   >
                     <div className="font-medium min-w-[150px] flex items-center gap-2">
                       <Switch
@@ -230,25 +356,21 @@ export default function TabsMerging() {
                       )}
                     </div>
                     <div className="flex-grow">
-                      <Select
-                        value={tabAssignments[sheet.name] || ""}
-                        onValueChange={(value) => handleTabAssignment(sheet.name, value)}
-                        disabled={selectedProjects.length === 0 || !includedTabs[sheet.name]}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a project" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {selectedProjects.map((projectId) => {
-                            const project = MOCK_PROJECTS.find((p) => p.id === projectId)
-                            return project ? (
-                              <SelectItem key={project.id} value={project.id}>
-                                {project.name}
-                              </SelectItem>
-                            ) : null
-                          })}
-                        </SelectContent>
-                      </Select>
+                      <MultiSelectDropdown
+                        options={projectOptions.filter((option) => selectedProjects.includes(option.value))}
+                        selected={tabAssignments[sheet.name] ? [tabAssignments[sheet.name]] : []}
+                        onChange={(selected) => {
+                          if (selected.length > 0) {
+                            handleTabAssignment(sheet.name, selected[0])
+                          } else {
+                            // If all are deselected, clear the assignment
+                            handleTabAssignment(sheet.name, "")
+                          }
+                        }}
+                        placeholder="Select a project"
+                        emptyMessage="No projects selected"
+                        disabled={!includedTabs[sheet.name] || selectedProjects.length === 0}
+                      />
                     </div>
                   </div>
                 ))}
@@ -288,7 +410,7 @@ export default function TabsMerging() {
                 disabled={
                   isProcessing ||
                   selectedProjects.length === 0 ||
-                  Object.keys(tabAssignments).length === 0 ||
+                  Object.values(tabAssignments).filter(Boolean).length === 0 ||
                   includedTabCount === 0
                 }
               >
